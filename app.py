@@ -25,6 +25,7 @@ def search():
         flash(f"Error: {e}")
         return redirect(url_for("index"))
 
+
 @app.route("/test-login")
 def test_login():
     """Call AirIQ Login and show raw response in browser, plus outbound IP."""

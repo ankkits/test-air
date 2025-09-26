@@ -2,12 +2,26 @@
 {% block content %}
 <h2>Available Flights</h2>
 {% if flights %}
-<ul>
-  {% for f in flights %}
-    <li>{{ f }}</li>
-  {% endfor %}
-</ul>
+  <table border="1" cellpadding="5">
+    <tr>
+      <th>Airline</th>
+      <th>Flight Number</th>
+      <th>Departure</th>
+      <th>Arrival</th>
+      <th>Fare</th>
+    </tr>
+    {% for f in flights %}
+      {% set seg = f['FlightSegment'][0] %}
+      <tr>
+        <td>{{ seg['AirlineCode'] }}</td>
+        <td>{{ seg['FlightNumber'] }}</td>
+        <td>{{ seg['DepartureDateTime'] }}</td>
+        <td>{{ seg['ArrivalDateTime'] }}</td>
+        <td>{{ f['ItinTotalFares']['TotalFare'] }}</td>
+      </tr>
+    {% endfor %}
+  </table>
 {% else %}
-<p>No flights found</p>
+  <p>No flights found</p>
 {% endif %}
 {% endblock %}
