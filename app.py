@@ -25,6 +25,16 @@ def search():
         flash(f"Error: {e}")
         return redirect(url_for("index"))
 
+@app.route("/test-availability")
+def test_availability():
+    import datetime
+    try:
+        # Try DEL -> BOM 10 days from now
+        date = datetime.datetime.now() + datetime.timedelta(days=10)
+        data = airiq.availability("DEL", "BOM", date)
+        return data  # Flask will return raw JSON directly
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.route("/test-login")
 def test_login():
