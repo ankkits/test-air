@@ -77,10 +77,11 @@ class AirIQClient:
         data = r.json()
         # 👀 Check if token expired
         if data.get("Status", {}).get("Error", "").startswith("The requested token was timed out"):
+
         # Force relogin
-        self.token = None
-        token = self._get_token()
-        headers = {"Authorization": token}
-        r = requests.post(f"{self.base_url}/Availability", json=payload, headers=headers, timeout=20)
-        data = r.json()
+            self.token = None
+            token = self._get_token()
+            headers = {"Authorization": token}
+            r = requests.post(f"{self.base_url}/Availability", json=payload, headers=headers, timeout=20)
+            data = r.json()
         return data
