@@ -1,3 +1,4 @@
+import request
 from flask import Flask, render_template, request, redirect, url_for, flash
 from config import Config
 from airiq_client import AirIQClient
@@ -26,19 +27,30 @@ def search():
 
 @app.route("/test-login")
 def test_login():
-    """Call AirIQ Login and show raw response in browser."""
+    """Call AirIQ Login and show raw response in browser, plus outbound IP."""
     try:
+        # Check outbound IP
+        ip = requests.get("https://ifconfig.me", timeout=5).text
+
+        # Try AirIQ login
         token = airiq._login()
+
         return {
             "status": "success",
+            "outbound_ip": ip,
             "token": token
         }
     except Exception as e:
+        ip = None
+        try:
+            ip = requests.get("https://ifconfig.me", timeout=5).text
+        except:
+            pass
         return {
             "status": "error",
+            "outbound_ip": ip,
             "message": str(e)
         }
-
 
 if __name__ == "__main__":
     app.run(debug=True)
