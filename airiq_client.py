@@ -7,46 +7,25 @@ class AirIQClient:
         self.agent_id = Config.AGENT_ID
         self.username = Config.API_USERNAME
         self.password = Config.API_PASSWORD
-        self.token = None
-        self.token_expiry = None
 
     def _login(self):
         raw = f"{self.agent_id}*{self.username}:{self.password}"
         b64 = base64.b64encode(raw.encode()).decode()
         headers = {"Authorization": b64}
 
-        # Debug: show request and response
-        print("=== Login Request Debug ===")
-        print("Login URL:", f"{self.base_url}/Login")
-        print("Authorization header (Base64):", headers["Authorization"])
-        print("Decoded format:", raw)
-        print("===========================")
-
         resp = requests.post(f"{self.base_url}/Login", headers=headers, timeout=10)
-
-        print("=== Login Response Debug ===")
-        print("Status Code:", resp.status_code)
-        try:
-            print("Response JSON:", resp.json())
-        except Exception:
-            print("Response Text:", resp.text)
-        print("============================")
-
         resp.raise_for_status()
         j = resp.json()
-        self.token = j.get("Token")
-        self.token_expiry = datetime.datetime.combine(
-            datetime.date.today(), datetime.time(23, 59, 59)
-        )
-        return self.token
 
-    def _get_token(self):
-        if not self.token or datetime.datetime.now() >= self.token_expiry:
-            return self._login()
-        return self.token
+        token = j.get("Token")
+        if not token:
+            raise Exception(f"Login failed: {j}")
+        return token
 
     def availability(self, origin, destination, date, adults=1):
-        token = self._get_token()
+        # Always get a fresh token
+        token = self._login()
+
         payload = {
             "AgentInfo": {
                 "AgentId": self.agent_id,
@@ -73,15 +52,19 @@ class AirIQClient:
         }
         headers = {"Authorization": token}
         r = requests.post(f"{self.base_url}/Availability", json=payload, headers=headers, timeout=20)
-        #r.raise_for_status()
-        data = r.json()
-        # 👀 Check if token expired
-        if data.get("Status", {}).get("Error", "").startswith("The requested token was timed out"):
+        r.raise_for_status()
+        return r.json()
 
-        # Force relogin
-            self.token = None
-            token = self._get_token()
-            headers = {"Authorization": token}
-            r = requests.post(f"{self.base_url}/Availability", json=payload, headers=headers, timeout=20)
-            data = r.json()
-        return data
+    def pricing(self, flight_payload):
+        token = self._login()
+        headers = {"Authorization": token}
+        r = requests.post(f"{self.base_url}/Pricing", json=flight_payload, headers=headers, timeout=20)
+        r.raise_for_status()
+        return r.json()
+
+    def book(self, booking_payload):
+        token = self._login()
+        headers = {"Authorization": token}
+        r = requests.post(f"{self.base_url}/Book", json=booking_payload, headers=headers, timeout=30)
+        r.raise_for_status()
+        return r.json()
