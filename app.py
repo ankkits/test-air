@@ -24,6 +24,14 @@ def search():
     except Exception as e:
         flash(f"Error: {e}")
         return redirect(url_for("index"))
+@app.route("/debug-token")
+def debug_token():
+    try:
+        token = airiq._login()
+        # Return raw token only, as plain text
+        return token, 200, {"Content-Type": "text/plain"}
+    except Exception as e:
+        return str(e), 500, {"Content-Type": "text/plain"}
 
 @app.route("/test-availability")
 def test_availability():
