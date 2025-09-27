@@ -112,16 +112,30 @@ class TravelAPIClient:
             data (dict): Request body data for POST requests
             params (dict): Query parameters for GET requests
         """
+        # For this API, we might need to include auth info in every request body
+        # rather than using headers
         if not self.ensure_authenticated():
             return None
         
         url = f"{self.base_url}{endpoint}"
         
+        # Try with Basic Auth in header (some APIs work this way)
         headers = {
-            'Authorization': f'Bearer {self.token}',  # or however the API expects the token
+            'Authorization': f'Basic {self._create_basic_auth_string()}',
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
+        
+        # If we have data and it's the Availability endpoint, make sure AgentInfo is included
+        if data and endpoint == '/Availability':
+            # Ensure AgentInfo is properly formatted
+            if 'AgentInfo' not in data:
+                data['AgentInfo'] = {
+                    "AgentId": self.agent_id,
+                    "UserName": self.username,
+                    "AppType": "API",
+                    "Version": "2.0"
+                }
         
         try:
             if method.upper() == 'GET':
@@ -130,16 +144,6 @@ class TravelAPIClient:
                 response = self.session.post(url, headers=headers, json=data)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
-            
-            if response.status_code == 401:
-                # Token might have expired, try to re-authenticate
-                print("Received 401, attempting re-authentication...")
-                if self.authenticate():
-                    headers['Authorization'] = f'Bearer {self.token}'
-                    if method.upper() == 'GET':
-                        response = self.session.get(url, headers=headers, params=params)
-                    elif method.upper() == 'POST':
-                        response = self.session.post(url, headers=headers, json=data)
             
             return response
             
