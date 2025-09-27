@@ -22,6 +22,51 @@ class TravelAPIClient:
         self.token = None
         self.token_expiry = None
         self.session = requests.Session()
+        self.token_file = '/tmp/travel_api_token.json'  # Temp storage for token
+        
+        # Try to load existing token on startup
+        self._load_token()
+    
+    def _save_token(self):
+        """Save token to file for persistence across restarts"""
+        if self.token and self.token_expiry:
+            try:
+                token_data = {
+                    'token': self.token,
+                    'expiry': self.token_expiry.isoformat(),
+                    'agent_id': self.agent_id
+                }
+                with open(self.token_file, 'w') as f:
+                    json.dump(token_data, f)
+                print(f"💾 Token saved to file")
+            except Exception as e:
+                print(f"⚠️ Could not save token: {e}")
+    
+    def _load_token(self):
+        """Load token from file if it exists and is valid"""
+        try:
+            with open(self.token_file, 'r') as f:
+                token_data = json.load(f)
+            
+            # Verify it's for the same agent
+            if token_data.get('agent_id') == self.agent_id:
+                self.token = token_data.get('token')
+                expiry_str = token_data.get('expiry')
+                if expiry_str:
+                    self.token_expiry = datetime.fromisoformat(expiry_str)
+                
+                if self.is_token_valid():
+                    print(f"🔄 Loaded existing token from file")
+                    print(f"📅 Token expires: {self.token_expiry}")
+                    print(f"⏰ Time remaining: {self.token_expiry - datetime.now()}")
+                else:
+                    print(f"⚠️ Saved token is expired, will need new one")
+                    self.token = None
+                    self.token_expiry = None
+            else:
+                print(f"⚠️ Saved token is for different agent")
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            print(f"ℹ️ No saved token found - will authenticate when needed")
     
     def _create_basic_auth_string(self):
         """
@@ -70,6 +115,10 @@ class TravelAPIClient:
                             self.token_expiry = datetime.now().replace(hour=23, minute=59, second=59)
                             print("✅ Authentication successful!")
                             print(f"🎫 Token received: {self.token[:50]}...")
+                            print(f"📅 Token expires: {self.token_expiry}")
+                            
+                            # Save token for persistence
+                            self._save_token()
                             return True
                         else:
                             print("❌ No token in successful response")
@@ -106,30 +155,92 @@ class TravelAPIClient:
         
         return True
     
+    def set_token_manually(self, token):
+        """
+        Manually set a token (useful when you have a valid token from elsewhere)
+        """
+        self.token = token
+        # Set expiry to end of day as per API docs
+        self.token_expiry = datetime.now().replace(hour=23, minute=59, second=59)
+        print(f"✅ Token set manually: {token[:50]}...")
+        print(f"📅 Token expires: {self.token_expiry}")
+        
+        # Save the manually set token
+        self._save_token()
+        return True
+    
+    def get_token_status(self):
+        """
+        Get detailed token status information
+        """
+        if not self.token:
+            return {"status": "no_token", "message": "No token available"}
+        
+        if not self.is_token_valid():
+            return {"status": "expired", "message": "Token has expired", "expired_at": self.token_expiry}
+        
+        remaining = self.token_expiry - datetime.now()
+        return {
+            "status": "valid",
+            "token_preview": self.token[:50] + "...",
+            "expires_at": self.token_expiry,
+            "time_remaining": str(remaining),
+            "message": f"Token valid for {remaining}"
+        }
+    
     def ensure_authenticated(self):
         """
-        Ensure we have a valid token, authenticate if needed
+        Ensure we have a valid token, authenticate ONLY if needed
+        IMPORTANT: Only generates new tokens when absolutely necessary due to 5/day limit
         """
-        if not self.is_token_valid():
-            print("Token invalid or expired, re-authenticating...")
+        if not self.token:
+            print("⚠️ No token found")
+            print("🚨 WARNING: About to generate NEW token (5 per day limit!)")
+            response = input("Continue? (y/N): ").lower() if not os.environ.get('PORT') else 'y'
+            if response != 'y':
+                print("❌ Authentication cancelled to preserve token limit")
+                return False
             return self.authenticate()
+        
+        if self.token_expiry and datetime.now() >= self.token_expiry:
+            print("⚠️ Token expired")
+            print("🚨 WARNING: About to generate NEW token (5 per day limit!)")
+            print(f"📅 Current time: {datetime.now()}")
+            print(f"📅 Token expired: {self.token_expiry}")
+            # In production (Render), auto-generate. Locally, ask for confirmation.
+            if not os.environ.get('PORT'):
+                response = input("Continue? (y/N): ").lower()
+                if response != 'y':
+                    print("❌ Authentication cancelled to preserve token limit")
+                    return False
+            return self.authenticate()
+        
+        remaining_time = self.token_expiry - datetime.now()
+        print(f"✅ Using existing valid token")
+        print(f"⏰ Time remaining: {remaining_time}")
         return True
     
     def make_authenticated_request(self, endpoint, method='GET', data=None, params=None):
         """
         Make an authenticated request to the API using the token
+        Only authenticate if we don't have a valid token
         """
+        # Only authenticate if we truly need to (no token or expired)
         if not self.ensure_authenticated():
+            print("❌ Failed to authenticate")
             return None
         
         url = f"{self.base_url}{endpoint}"
         
-        # Use the token in Authorization header for authenticated requests
+        # Use the existing token - don't get a fresh one every time
         headers = {
-            'Authorization': f'Bearer {self.token}',
+            'Authorization': self.token,  # Try token directly first
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
+        
+        print(f"🌐 Making request to: {url}")
+        print(f"🔑 Using existing token: {self.token[:50]}..." if self.token else "No token")
         
         try:
             if method.upper() == 'GET':
@@ -139,16 +250,29 @@ class TravelAPIClient:
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
-            # Handle token expiry
-            if response.status_code == 401 or (response.status_code == 200 and 
-                'token was timed out' in response.text.lower()):
-                print("🔄 Token expired, re-authenticating...")
-                if self.authenticate():
-                    headers['Authorization'] = f'Bearer {self.token}'
-                    if method.upper() == 'GET':
-                        response = self.session.get(url, headers=headers, params=params)
-                    elif method.upper() == 'POST':
-                        response = self.session.post(url, headers=headers, json=data)
+            print(f"📡 Response status: {response.status_code}")
+            print(f"📋 Response body: {response.text[:500]}...")
+            
+            # Only try different token formats or re-auth if we get an auth error
+            if response.status_code == 401 or 'token was timed out' in response.text.lower():
+                print("🔄 Token seems expired, trying Bearer format first...")
+                headers['Authorization'] = f'Bearer {self.token}'
+                
+                if method.upper() == 'GET':
+                    response2 = self.session.get(url, headers=headers, params=params)
+                elif method.upper() == 'POST':
+                    response2 = self.session.post(url, headers=headers, json=data)
+                
+                print(f"📡 Bearer response status: {response2.status_code}")
+                
+                # If Bearer format also fails, then token is truly expired
+                if response2.status_code == 401 or 'token was timed out' in response2.text.lower():
+                    print("⚠️ Token is truly expired. Need to generate new token.")
+                    print("❌ Cannot auto-generate new token due to daily limit!")
+                    print("🔧 Please manually call client.authenticate() to get new token")
+                    return response2  # Return the failed response
+                else:
+                    return response2  # Bearer format worked
             
             return response
             
