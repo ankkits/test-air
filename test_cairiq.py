@@ -290,6 +290,7 @@ def run_as_web_service():
     from http.server import HTTPServer, BaseHTTPRequestHandler
     import json
     import urllib.parse
+    from datetime import datetime
     
     # Initialize the API client globally
     client = main()
@@ -391,7 +392,6 @@ def run_as_web_service():
                 
                 # Convert date format from YYYY-MM-DD to YYYYMMDD
                 try:
-                    from datetime import datetime
                     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
                     flight_date = date_obj.strftime('%Y%m%d')
                 except:
