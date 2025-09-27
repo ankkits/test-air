@@ -1,6 +1,7 @@
 import requests
 import base64
 import json
+import os
 from datetime import datetime, timedelta
 import time
 
@@ -196,10 +197,7 @@ class TravelAPIClient:
         if not self.token:
             print("⚠️ No token found")
             print("🚨 WARNING: About to generate NEW token (5 per day limit!)")
-            response = input("Continue? (y/N): ").lower() if not os.environ.get('PORT') else 'y'
-            if response != 'y':
-                print("❌ Authentication cancelled to preserve token limit")
-                return False
+            # In production (Render), auto-generate since we can't get user input
             return self.authenticate()
         
         if self.token_expiry and datetime.now() >= self.token_expiry:
@@ -207,12 +205,7 @@ class TravelAPIClient:
             print("🚨 WARNING: About to generate NEW token (5 per day limit!)")
             print(f"📅 Current time: {datetime.now()}")
             print(f"📅 Token expired: {self.token_expiry}")
-            # In production (Render), auto-generate. Locally, ask for confirmation.
-            if not os.environ.get('PORT'):
-                response = input("Continue? (y/N): ").lower()
-                if response != 'y':
-                    print("❌ Authentication cancelled to preserve token limit")
-                    return False
+            # In production (Render), auto-generate since we can't get user input
             return self.authenticate()
         
         remaining_time = self.token_expiry - datetime.now()
@@ -611,6 +604,22 @@ def run_as_web_service():
                     "timestamp": datetime.now().isoformat()
                 }
                 self.wfile.write(json.dumps(status).encode())
+            
+            elif self.path == '/debug':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                
+                debug_info = {
+                    "client_exists": client is not None,
+                    "has_token": client.token is not None if client else False,
+                    "token_preview": client.token[:50] + "..." if client and client.token else None,
+                    "token_expiry": client.token_expiry.isoformat() if client and client.token_expiry else None,
+                    "is_valid": client.is_token_valid() if client else False,
+                    "current_time": datetime.now().isoformat(),
+                    "token_status": client.get_token_status() if client else None
+                }
+                self.wfile.write(json.dumps(debug_info, indent=2).encode())
             
             else:
                 self.send_response(404)
