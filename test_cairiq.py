@@ -363,49 +363,23 @@ def main():
     print(f"📡 Connecting to: {BASE_URL}")
     print(f"🔑 Agent ID: {AGENT_ID}")
     
-    # Create client instance
-    client = TravelAPIClient(AGENT_ID, USERNAME, PASSWORD, BASE_URL)
-    
-    # Authenticate
-    if client.authenticate():
-        print("✅ Authentication successful!")
+    try:
+        # Create client instance
+        print("🔧 Creating TravelAPIClient instance...")
+        client = TravelAPIClient(AGENT_ID, USERNAME, PASSWORD, BASE_URL)
+        print("✅ Client instance created successfully")
         
-        # Keep the script running and ready for API calls
-        print("\n🔄 Client is running and authenticated!")
-        print("📋 Available methods:")
-        print("   - client.get_data('/endpoint')")
-        print("   - client.post_data('/endpoint', data)")
-        print("   - client.search_availability(from, to, date)")
+        # Don't authenticate immediately - let it happen on first request
+        print("📋 Client ready for use")
+        print("   - Authentication will happen on first API call")
+        print("   - This conserves your daily token limit")
         
-        # Test the availability search for October 10th
-        try:
-            print("\n🧪 Testing Availability API with sample search...")
-            print("🔍 Searching: IXB → DEL on 2024-10-10")
-            
-            # Call the availability API
-            results = client.search_availability(
-                departure_station="IXB",    # Bagdogra
-                arrival_station="DEL",      # Delhi  
-                flight_date="20241010",     # October 10, 2024
-                adult_count=1,
-                cabin="E",                  # Economy
-                direct_only=False
-            )
-            
-            if results:
-                print("✅ Availability search successful!")
-                print(f"📊 Results: {json.dumps(results, indent=2)}")
-            else:
-                print("⚠️ No results returned from availability search")
-                
-        except Exception as e:
-            print(f"⚠️ Availability test error: {e}")
-        
-        print("\n✅ Script completed successfully!")
         return client
         
-    else:
-        print("❌ Authentication failed!")
+    except Exception as e:
+        print(f"❌ Error creating client: {e}")
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}")
         return None
 
 # For continuous running (useful for web services on Render)
@@ -417,11 +391,21 @@ def run_as_web_service():
     import json
     import urllib.parse
     from datetime import datetime
+    import traceback
     
     # Initialize the API client globally
+    print("🌐 Initializing web service...")
     client = main()
     
+    if client:
+        print(f"✅ Client initialized successfully")
+    else:
+        print(f"❌ Client initialization failed")
+    
     class APIHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            # Suppress default HTTP logs to keep output clean
+            pass
         def do_GET(self):
             if self.path == '/':
                 self.send_response(200)
