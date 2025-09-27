@@ -1,5 +1,8 @@
-import base64, requests, datetime
+import base64
+import requests
+import datetime
 from config import Config
+
 
 class AirIQClient:
     def __init__(self):
@@ -7,8 +10,22 @@ class AirIQClient:
         self.agent_id = Config.AGENT_ID
         self.username = Config.API_USERNAME
         self.password = Config.API_PASSWORD
+        self.hardcoded_token = Config.HARDCODED_TOKEN  # from env (Render)
+
+        # store cached token only if not using hardcoded
+        self.token = None
+        self.token_expiry = None
 
     def _login(self):
+        """
+        Get a token:
+        - If HARDCODED_TOKEN is present → always use that
+        - Else → call the Login API normally
+        """
+        if self.hardcoded_token:
+            print("⚠️ Using hardcoded token from environment (testing mode)")
+            return self.hardcoded_token
+
         raw = f"{self.agent_id}*{self.username}:{self.password}"
         b64 = base64.b64encode(raw.encode()).decode()
         headers = {"Authorization": b64}
@@ -20,12 +37,22 @@ class AirIQClient:
         token = j.get("Token")
         if not token:
             raise Exception(f"Login failed: {j}")
+
+        # Cache for ~15 minutes (adjust if docs specify)
+        self.token = token
+        self.token_expiry = datetime.datetime.now() + datetime.timedelta(minutes=15)
         return token
 
-    def availability(self, origin, destination, date, adults=1):
-        # Always get a fresh token
-        token = self._login()
+    def _get_token(self):
+        """Return valid token (re-login if expired)."""
+        if self.hardcoded_token:
+            return self.hardcoded_token
+        if not self.token or datetime.datetime.now() >= self.token_expiry:
+            return self._login()
+        return self.token
 
+    def availability(self, origin, destination, date, adults=1):
+        token = self._get_token()
         payload = {
             "AgentInfo": {
                 "AgentId": self.agent_id,
@@ -56,14 +83,14 @@ class AirIQClient:
         return r.json()
 
     def pricing(self, flight_payload):
-        token = self._login()
+        token = self._get_token()
         headers = {"Authorization": token}
         r = requests.post(f"{self.base_url}/Pricing", json=flight_payload, headers=headers, timeout=20)
         r.raise_for_status()
         return r.json()
 
     def book(self, booking_payload):
-        token = self._login()
+        token = self._get_token()
         headers = {"Authorization": token}
         r = requests.post(f"{self.base_url}/Book", json=booking_payload, headers=headers, timeout=30)
         r.raise_for_status()

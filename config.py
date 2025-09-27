@@ -6,3 +6,4 @@ class Config:
     AGENT_ID = os.environ.get("AGENT_ID")
     API_USERNAME = os.environ.get("API_USERNAME")
     API_PASSWORD = os.environ.get("API_PASSWORD")
+    HARDCODED_TOKEN = os.environ.get("HARDCODED_TOKEN")
