@@ -83,6 +83,8 @@ class TravelAPIClient:
         Authenticate with the API using the /Login endpoint
         """
         try:
+            print("🔐 Starting authentication process...")
+            
             # Create the Basic Auth header
             auth_header = self._create_basic_auth_string()
             
@@ -95,22 +97,33 @@ class TravelAPIClient:
             # Call the Login endpoint
             login_url = f"{self.base_url}/Login"
             
-            print(f"🔐 Authenticating with URL: {login_url}")
-            print(f"🔑 Using Auth Header: Basic {auth_header}")
+            print(f"🌐 Making login request to: {login_url}")
+            print(f"🔑 Auth header (Base64): {auth_header}")
+            print(f"📋 Full headers: {headers}")
             
             response = self.session.post(login_url, headers=headers)
             
             print(f"📡 Login response status: {response.status_code}")
-            print(f"📋 Login response: {response.text}")
+            print(f"📋 Login response headers: {dict(response.headers)}")
+            print(f"📄 Login response body: {response.text}")
             
             if response.status_code == 200:
                 try:
                     data = response.json()
+                    print(f"🔍 Parsed JSON response: {json.dumps(data, indent=2)}")
                     
                     # Check the Status.ResultCode as per documentation
-                    if data.get('Status', {}).get('ResultCode') == '1':
+                    status = data.get('Status', {})
+                    result_code = status.get('ResultCode')
+                    
+                    print(f"📊 Status object: {status}")
+                    print(f"🎯 Result code: '{result_code}' (type: {type(result_code)})")
+                    
+                    if result_code == '1':
                         # Success - extract the token
                         self.token = data.get('Token')
+                        print(f"🎫 Raw token from API: {self.token}")
+                        
                         if self.token:
                             # Token is valid through end of day according to docs
                             self.token_expiry = datetime.now().replace(hour=23, minute=59, second=59)
@@ -122,26 +135,36 @@ class TravelAPIClient:
                             self._save_token()
                             return True
                         else:
-                            print("❌ No token in successful response")
+                            print("❌ SUCCESS response but no token in response")
+                            print(f"🔍 Full response data: {data}")
                             return False
                     else:
                         # Failed authentication
-                        error_msg = data.get('Status', {}).get('Error', 'Unknown error')
-                        print(f"❌ Authentication failed: {error_msg}")
+                        error_msg = status.get('Error', 'Unknown error')
+                        print(f"❌ Authentication failed with result code: '{result_code}'")
+                        print(f"💬 Error message: {error_msg}")
+                        print(f"🔍 Full status: {status}")
                         return False
                         
-                except json.JSONDecodeError:
-                    print(f"❌ Invalid JSON response: {response.text}")
+                except json.JSONDecodeError as je:
+                    print(f"❌ Invalid JSON response: {je}")
+                    print(f"📄 Raw response: {response.text}")
                     return False
             else:
-                print(f"❌ HTTP Error {response.status_code}: {response.text}")
+                print(f"❌ HTTP Error {response.status_code}")
+                print(f"📄 Response body: {response.text}")
+                print(f"📋 Response headers: {dict(response.headers)}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            print(f"❌ Request error during authentication: {e}")
+            print(f"❌ Network/Request error: {e}")
+            import traceback
+            print(f"📋 Traceback: {traceback.format_exc()}")
             return False
         except Exception as e:
             print(f"❌ Unexpected error during authentication: {e}")
+            import traceback
+            print(f"📋 Traceback: {traceback.format_exc()}")
             return False
     
     def is_token_valid(self):
@@ -604,6 +627,44 @@ def run_as_web_service():
                     "token_status": client.get_token_status() if client else None
                 }
                 self.wfile.write(json.dumps(debug_info, indent=2).encode())
+            
+            elif self.path == '/test-auth':
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                
+                if client:
+                    try:
+                        print("🧪 Manual authentication test requested")
+                        auth_result = client.authenticate()
+                        
+                        html = f"""
+                        <html><body>
+                            <h1>Authentication Test Results</h1>
+                            <p><strong>Authentication Result:</strong> {auth_result}</p>
+                            <p><strong>Token:</strong> {client.token[:100] if client.token else 'None'}...</p>
+                            <p><strong>Token Expiry:</strong> {client.token_expiry}</p>
+                            <p><strong>Current Time:</strong> {datetime.now()}</p>
+                            <p><strong>Token Valid:</strong> {client.is_token_valid()}</p>
+                            <br>
+                            <a href="/debug">← Back to Debug</a> | <a href="/">← Home</a>
+                        </body></html>
+                        """
+                        self.wfile.write(html.encode())
+                    except Exception as e:
+                        import traceback
+                        error_html = f"""
+                        <html><body>
+                            <h1>Authentication Test - ERROR</h1>
+                            <p><strong>Error:</strong> {str(e)}</p>
+                            <pre>{traceback.format_exc()}</pre>
+                            <br>
+                            <a href="/debug">← Back to Debug</a>
+                        </body></html>
+                        """
+                        self.wfile.write(error_html.encode())
+                else:
+                    self.wfile.write(b"<html><body><h1>No client available</h1></body></html>")
             
             else:
                 self.send_response(404)
