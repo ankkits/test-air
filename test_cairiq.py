@@ -168,6 +168,60 @@ class TravelAPIClient:
         elif response:
             print(f"Request failed with status {response.status_code}: {response.text}")
         return None
+    
+    def search_availability(self, departure_station, arrival_station, flight_date, 
+                          trip_type="O", airline_id="", cabin="E", fare_type="N", 
+                          direct_only=False, adult_count=1, child_count=0, infant_count=0):
+        """
+        Search flight availability
+        
+        Args:
+            departure_station (str): 3-letter IATA departure airport code (e.g., "IXB")
+            arrival_station (str): 3-letter IATA arrival airport code (e.g., "DEL") 
+            flight_date (str): Flight date in YYYYMMDD format (e.g., "20241010")
+            trip_type (str): O-Oneway, R-Roundtrip, Y-Roundtrip Special
+            airline_id (str): Two-letter airline code (empty for all airlines)
+            cabin (str): E-Economy, P-Premium Economy, B-Business, F-First
+            fare_type (str): N-Normal, C-Corporate, R-Retail
+            direct_only (bool): True for direct flights only
+            adult_count (int): Number of adults (1-9)
+            child_count (int): Number of children
+            infant_count (int): Number of infants (1-4)
+        """
+        
+        # Prepare the request payload according to API documentation
+        payload = {
+            "AgentInfo": {
+                "AgentId": self.agent_id,
+                "UserName": self.username,
+                "AppType": "API",
+                "Version": "2.0"
+            },
+            "TripType": trip_type,
+            "AirlineID": airline_id,
+            "AvailInfo": [
+                {
+                    "DepartureStation": departure_station.upper(),
+                    "ArrivalStation": arrival_station.upper(),
+                    "FlightDate": flight_date,
+                    "FarecabinOption": cabin.upper(),
+                    "FareType": fare_type.upper(),
+                    "OnlyDirectFlight": direct_only
+                }
+            ],
+            "PassengersInfo": {
+                "AdultCount": str(adult_count),
+                "ChildCount": str(child_count),
+                "InfantCount": str(infant_count)
+            }
+        }
+        
+        print(f"🔍 Searching flights: {departure_station} → {arrival_station} on {flight_date}")
+        print(f"📋 Request payload: {json.dumps(payload, indent=2)}")
+        
+        # Make the API call
+        response = self.post_data('/Availability', payload)
+        return response
 
 def main():
     """
@@ -195,15 +249,31 @@ def main():
         print("📋 Available methods:")
         print("   - client.get_data('/endpoint')")
         print("   - client.post_data('/endpoint', data)")
+        print("   - client.search_availability(from, to, date)")
         
-        # Example test call (uncomment when you know the actual endpoints)
+        # Test the availability search for October 10th
         try:
-            # Test if we can make a basic request
-            print("\n🧪 Testing connection...")
-            # You can add actual API endpoints here when you know them
+            print("\n🧪 Testing Availability API with sample search...")
+            print("🔍 Searching: IXB → DEL on 2024-10-10")
             
+            # Call the availability API
+            results = client.search_availability(
+                departure_station="IXB",    # Bagdogra
+                arrival_station="DEL",      # Delhi  
+                flight_date="20241010",     # October 10, 2024
+                adult_count=1,
+                cabin="E",                  # Economy
+                direct_only=False
+            )
+            
+            if results:
+                print("✅ Availability search successful!")
+                print(f"📊 Results: {json.dumps(results, indent=2)}")
+            else:
+                print("⚠️ No results returned from availability search")
+                
         except Exception as e:
-            print(f"⚠️ Test request error: {e}")
+            print(f"⚠️ Availability test error: {e}")
         
         print("\n✅ Script completed successfully!")
         return client
@@ -219,6 +289,7 @@ def run_as_web_service():
     """
     from http.server import HTTPServer, BaseHTTPRequestHandler
     import json
+    import urllib.parse
     
     # Initialize the API client globally
     client = main()
@@ -233,17 +304,167 @@ def run_as_web_service():
                 status = "✅ Connected" if client and client.is_token_valid() else "❌ Not Connected"
                 
                 html = f"""
+                <!DOCTYPE html>
                 <html>
+                <head>
+                    <title>Travel API Client</title>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                        .status {{ padding: 20px; background: #f0f8ff; border-radius: 8px; }}
+                        .search-form {{ margin-top: 30px; padding: 20px; background: #f9f9f9; border-radius: 8px; }}
+                        input, select {{ padding: 8px; margin: 5px; }}
+                        button {{ padding: 10px 20px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; }}
+                        button:hover {{ background: #005a87; }}
+                        .results {{ margin-top: 20px; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 8px; }}
+                        pre {{ background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; }}
+                    </style>
+                </head>
                 <body>
-                    <h1>Travel API Client Status</h1>
-                    <p>Status: {status}</p>
-                    <p>Agent ID: AQAG059771</p>
-                    <p>Base URL: http://airiqnewapi.mywebcheck.in/TravelAPI.svc</p>
-                    <p>Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                    <h1>🛫 Travel API Client</h1>
+                    
+                    <div class="status">
+                        <h2>Status</h2>
+                        <p><strong>Connection:</strong> {status}</p>
+                        <p><strong>Agent ID:</strong> AQAG059771</p>
+                        <p><strong>Base URL:</strong> http://airiqnewapi.mywebcheck.in/TravelAPI.svc</p>
+                        <p><strong>Last Updated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                    </div>
+                    
+                    <div class="search-form">
+                        <h2>🔍 Search Flights</h2>
+                        <form action="/search" method="get">
+                            <div>
+                                <label>From (Airport Code):</label>
+                                <input type="text" name="from" value="IXB" maxlength="3" required>
+                                
+                                <label>To (Airport Code):</label>
+                                <input type="text" name="to" value="DEL" maxlength="3" required>
+                            </div>
+                            
+                            <div>
+                                <label>Date (YYYY-MM-DD):</label>
+                                <input type="date" name="date" value="2024-10-10" required>
+                                
+                                <label>Adults:</label>
+                                <select name="adults">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label>Cabin Class:</label>
+                                <select name="cabin">
+                                    <option value="E">Economy</option>
+                                    <option value="P">Premium Economy</option>
+                                    <option value="B">Business</option>
+                                    <option value="F">First</option>
+                                </select>
+                                
+                                <label>
+                                    <input type="checkbox" name="direct" value="true"> Direct flights only
+                                </label>
+                            </div>
+                            
+                            <button type="submit">🔍 Search Flights</button>
+                        </form>
+                    </div>
                 </body>
                 </html>
                 """
                 self.wfile.write(html.encode())
+            
+            elif self.path.startswith('/search'):
+                # Parse query parameters
+                parsed_url = urllib.parse.urlparse(self.path)
+                params = urllib.parse.parse_qs(parsed_url.query)
+                
+                # Extract parameters
+                from_airport = params.get('from', ['IXB'])[0].upper()
+                to_airport = params.get('to', ['DEL'])[0].upper()
+                date_str = params.get('date', ['2024-10-10'])[0]
+                adults = int(params.get('adults', ['1'])[0])
+                cabin = params.get('cabin', ['E'])[0]
+                direct_only = 'direct' in params
+                
+                # Convert date format from YYYY-MM-DD to YYYYMMDD
+                try:
+                    from datetime import datetime
+                    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    flight_date = date_obj.strftime('%Y%m%d')
+                except:
+                    flight_date = '20241010'  # fallback
+                
+                # Search flights
+                if client and client.is_token_valid():
+                    try:
+                        results = client.search_availability(
+                            departure_station=from_airport,
+                            arrival_station=to_airport,
+                            flight_date=flight_date,
+                            adult_count=adults,
+                            cabin=cabin,
+                            direct_only=direct_only
+                        )
+                        
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        
+                        html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Flight Search Results</title>
+                            <style>
+                                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                                .header {{ background: #f0f8ff; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
+                                .results {{ background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; }}
+                                pre {{ background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px; }}
+                                .back-btn {{ display: inline-block; padding: 10px 20px; background: #007cba; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 20px; }}
+                                .back-btn:hover {{ background: #005a87; }}
+                            </style>
+                        </head>
+                        <body>
+                            <a href="/" class="back-btn">← Back to Search</a>
+                            
+                            <div class="header">
+                                <h1>✈️ Flight Search Results</h1>
+                                <p><strong>Route:</strong> {from_airport} → {to_airport}</p>
+                                <p><strong>Date:</strong> {date_str} ({flight_date})</p>
+                                <p><strong>Passengers:</strong> {adults} Adult(s)</p>
+                                <p><strong>Cabin:</strong> {cabin} | <strong>Direct Only:</strong> {direct_only}</p>
+                            </div>
+                            
+                            <div class="results">
+                                <h2>API Response:</h2>
+                                <pre>{json.dumps(results, indent=2) if results else 'No results returned'}</pre>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        self.wfile.write(html.encode())
+                        
+                    except Exception as e:
+                        self.send_response(500)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        
+                        error_html = f"""
+                        <html><body>
+                            <h1>Error</h1>
+                            <p>Failed to search flights: {str(e)}</p>
+                            <a href="/">← Back</a>
+                        </body></html>
+                        """
+                        self.wfile.write(error_html.encode())
+                else:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'text/html')  
+                    self.end_headers()
+                    self.wfile.write(b"<html><body><h1>Error: Not authenticated</h1><a href='/'>Back</a></body></html>")
             
             elif self.path == '/status':
                 self.send_response(200)
