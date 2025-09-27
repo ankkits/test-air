@@ -34,7 +34,7 @@ class TravelAPIClient:
     
     def authenticate(self):
         """
-        Authenticate with the API and get token
+        Authenticate with the API using the /Login endpoint
         """
         try:
             # Create the Basic Auth header
@@ -46,39 +46,52 @@ class TravelAPIClient:
                 'Accept': 'application/json'
             }
             
-            # Assuming login endpoint - you may need to adjust this
+            # Call the Login endpoint
             login_url = f"{self.base_url}/Login"
             
-            print(f"Authenticating with URL: {login_url}")
-            print(f"Using Auth Header: Basic {auth_header}")
+            print(f"🔐 Authenticating with URL: {login_url}")
+            print(f"🔑 Using Auth Header: Basic {auth_header}")
             
             response = self.session.post(login_url, headers=headers)
             
+            print(f"📡 Login response status: {response.status_code}")
+            print(f"📋 Login response: {response.text}")
+            
             if response.status_code == 200:
-                data = response.json()
-                
-                # Extract token from response - adjust based on actual API response structure
-                if 'Token' in data:
-                    self.token = data['Token']
-                    # Set token expiry (assuming 1 hour if not provided)
-                    self.token_expiry = datetime.now() + timedelta(hours=1)
-                    print("Authentication successful!")
-                    print(f"Token: {self.token}")
-                    return True
-                else:
-                    print("Authentication response received but no token found")
-                    print(f"Response: {data}")
+                try:
+                    data = response.json()
+                    
+                    # Check the Status.ResultCode as per documentation
+                    if data.get('Status', {}).get('ResultCode') == '1':
+                        # Success - extract the token
+                        self.token = data.get('Token')
+                        if self.token:
+                            # Token is valid through end of day according to docs
+                            self.token_expiry = datetime.now().replace(hour=23, minute=59, second=59)
+                            print("✅ Authentication successful!")
+                            print(f"🎫 Token received: {self.token[:50]}...")
+                            return True
+                        else:
+                            print("❌ No token in successful response")
+                            return False
+                    else:
+                        # Failed authentication
+                        error_msg = data.get('Status', {}).get('Error', 'Unknown error')
+                        print(f"❌ Authentication failed: {error_msg}")
+                        return False
+                        
+                except json.JSONDecodeError:
+                    print(f"❌ Invalid JSON response: {response.text}")
                     return False
             else:
-                print(f"Authentication failed. Status code: {response.status_code}")
-                print(f"Response: {response.text}")
+                print(f"❌ HTTP Error {response.status_code}: {response.text}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            print(f"Request error during authentication: {e}")
+            print(f"❌ Request error during authentication: {e}")
             return False
         except Exception as e:
-            print(f"Unexpected error during authentication: {e}")
+            print(f"❌ Unexpected error during authentication: {e}")
             return False
     
     def is_token_valid(self):
@@ -104,38 +117,19 @@ class TravelAPIClient:
     
     def make_authenticated_request(self, endpoint, method='GET', data=None, params=None):
         """
-        Make an authenticated request to the API
-        
-        Args:
-            endpoint (str): API endpoint (e.g., '/GetFlights')
-            method (str): HTTP method ('GET', 'POST', etc.)
-            data (dict): Request body data for POST requests
-            params (dict): Query parameters for GET requests
+        Make an authenticated request to the API using the token
         """
-        # For this API, we might need to include auth info in every request body
-        # rather than using headers
         if not self.ensure_authenticated():
             return None
         
         url = f"{self.base_url}{endpoint}"
         
-        # Try with Basic Auth in header (some APIs work this way)
+        # Use the token in Authorization header for authenticated requests
         headers = {
-            'Authorization': f'Basic {self._create_basic_auth_string()}',
+            'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
-        
-        # If we have data and it's the Availability endpoint, make sure AgentInfo is included
-        if data and endpoint == '/Availability':
-            # Ensure AgentInfo is properly formatted
-            if 'AgentInfo' not in data:
-                data['AgentInfo'] = {
-                    "AgentId": self.agent_id,
-                    "UserName": self.username,
-                    "AppType": "API",
-                    "Version": "2.0"
-                }
         
         try:
             if method.upper() == 'GET':
@@ -145,10 +139,21 @@ class TravelAPIClient:
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
+            # Handle token expiry
+            if response.status_code == 401 or (response.status_code == 200 and 
+                'token was timed out' in response.text.lower()):
+                print("🔄 Token expired, re-authenticating...")
+                if self.authenticate():
+                    headers['Authorization'] = f'Bearer {self.token}'
+                    if method.upper() == 'GET':
+                        response = self.session.get(url, headers=headers, params=params)
+                    elif method.upper() == 'POST':
+                        response = self.session.post(url, headers=headers, json=data)
+            
             return response
             
         except requests.exceptions.RequestException as e:
-            print(f"Request error: {e}")
+            print(f"❌ Request error: {e}")
             return None
     
     def get_data(self, endpoint, params=None):
